@@ -1,0 +1,6 @@
+[submodule "SceneComplete"]
+	path = SceneComplete
+	url = https://github.com/scenecomplete/SceneComplete
+[submodule "sam-3d-objects"]
+	path = sam-3d-objects
+	url = https://github.com/chsahit/sam-3d-objects.git
