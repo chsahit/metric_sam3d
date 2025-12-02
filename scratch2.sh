@@ -65,16 +65,18 @@ conda activate scenecomplete || {
 
 
 echo "Running scaling computation..."
-# python "${SCALING_SCRIPT}" \
-#     --segmentation_dirpath "${GRASP_DATA_DIR}" \
-#     --imesh_outputs "${IMESH_OUTPUTS}" \
-#     --output_filepath "${SCALE_MAPPING}" \
-#     --instant_mesh_model "instant-mesh-large" \
-#     --camera_name "realsense"
+python "${SCALING_SCRIPT}" \
+    --segmentation_dirpath "${GRASP_DATA_DIR}" \
+    --imesh_outputs "${IMESH_OUTPUTS}" \
+    --output_filepath "${SCALE_MAPPING}" \
+    --instant_mesh_model "instant-mesh-large" \
+    --camera_name "realsense"
 
 echo -e "${GREEN}Scaling computation complete!${NC}"
 echo "Scale mapping saved to: ${SCALE_MAPPING}"
 cat "${SCALE_MAPPING}"
+
+exit
 
 echo ""
 echo -e "${GREEN}Step 3: Registering mesh to scene${NC}"
