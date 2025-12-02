@@ -49,3 +49,7 @@ notes on install
   3. Unset NVCC_PREPEND_FLAGS before building
 
   Would you like me to test whether the --allow-unsupported-compiler flag is actually necessary by reverting it and trying a clean build?
+
+
+- Install gdown in foundationpose env!
+- modify download sxcript to skip all the inpainting weights

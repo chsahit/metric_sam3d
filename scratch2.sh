@@ -9,6 +9,7 @@
 # Usage:
 #   bash scratch2.sh
 
+unset NVCC_PREPEND_FLAGS
 set -e  # Exit on error
 
 # Colors for output
@@ -65,18 +66,16 @@ conda activate scenecomplete || {
 
 
 echo "Running scaling computation..."
-python "${SCALING_SCRIPT}" \
-    --segmentation_dirpath "${GRASP_DATA_DIR}" \
-    --imesh_outputs "${IMESH_OUTPUTS}" \
-    --output_filepath "${SCALE_MAPPING}" \
-    --instant_mesh_model "instant-mesh-large" \
-    --camera_name "realsense"
+# python "${SCALING_SCRIPT}" \
+#     --segmentation_dirpath "${GRASP_DATA_DIR}" \
+#     --imesh_outputs "${IMESH_OUTPUTS}" \
+#     --output_filepath "${SCALE_MAPPING}" \
+#     --instant_mesh_model "instant-mesh-large" \
+#     --camera_name "realsense"
 
 echo -e "${GREEN}Scaling computation complete!${NC}"
 echo "Scale mapping saved to: ${SCALE_MAPPING}"
 cat "${SCALE_MAPPING}"
-
-exit
 
 echo ""
 echo -e "${GREEN}Step 3: Registering mesh to scene${NC}"
@@ -87,6 +86,11 @@ conda activate foundationpose || {
     echo "Please create it first with: bash setup_foundationpose_env.sh"
     exit 1
 }
+unset NVCC_PREPEND_FLAGS
+
+# Use GPU 1 to avoid memory conflicts with GPU 0
+echo "Using GPU 1 to avoid memory issues..."
+export CUDA_VISIBLE_DEVICES=1
 
 echo "Running mesh registration..."
 python "${REGISTRATION_SCRIPT}" \
