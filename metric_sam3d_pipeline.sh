@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# scratch2.sh - Run scaling and registration pipeline
 #
 # This script:
 # 1. Activates sam3d-objects environment and runs completion
@@ -9,6 +8,16 @@
 #
 
 set -e  # Exit on error
+
+# Parse command-line arguments
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <capture_folder> <mask>"
+    echo "Example: $0 captures/tab2 captures/tab2/segmentation_output/sam_outputs/0_object_mask.png"
+    exit 1
+fi
+
+CAPTURE_FOLDER="$1"
+MASK="$2"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -33,16 +42,16 @@ else
 fi
 
 conda activate sam3d-objects
-python generate_meshes.py --capture_folder captures/tab2 --mask captures/tab2/segmentation_output/sam_outputs/0_object_mask.png
+python generate_meshes.py --capture_folder "${CAPTURE_FOLDER}" --mask "${MASK}"
 conda deactivate
 
-echo -e "${BLUE}======================================${NC}"
-echo -e "${BLUE}scratch2.sh - Scaling and Registration${NC}"
-echo -e "${BLUE}======================================${NC}"
+echo -e "${BLUE}========================${NC}"
+echo -e "${BLUE}Scaling and Registration${NC}"
+echo -e "${BLUE}========================${NC}"
 
 # Paths
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-OUTPUT_DIR="${SCRIPT_DIR}/captures/tab2/scratch2_output"
+OUTPUT_DIR="${SCRIPT_DIR}/outputs/prepared_data"
 GRASP_DATA_DIR="${OUTPUT_DIR}/grasp_data"
 IMESH_OUTPUTS="${OUTPUT_DIR}/imesh_outputs"
 SCALE_MAPPING="${OUTPUT_DIR}/obj_scale_mapping.txt"
@@ -55,11 +64,6 @@ REGISTRATION_SCRIPT="${SCENECOMPLETE_DIR}/scenecomplete/scripts/python/registrat
 
 unset NVCC_PREPEND_FLAGS
 
-# Check if data preparation has been done
-if [ ! -d "$GRASP_DATA_DIR" ]; then
-    echo -e "${RED}Error: Data not prepared. Please run scratch2.py first.${NC}"
-    exit 1
-fi
 
 
 echo ""
@@ -73,6 +77,7 @@ conda activate scenecomplete || {
     exit 1
 }
 
+python prepare_data_for_registration.py --capture_folder "${CAPTURE_FOLDER}" --mesh_folder outputs --mask "${MASK}"
 
 echo "Running scaling computation..."
 python "${SCALING_SCRIPT}" \
