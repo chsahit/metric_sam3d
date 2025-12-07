@@ -4,56 +4,77 @@ from sam3d_objects.mesh_from_image_mask import InferenceSequential, load_image, 
 from PIL import Image
 import numpy as np
 import argparse
+import glob
 
 
-def generate_meshes(capture_folder: str, mask: str, mask_type: str) -> None:
+def generate_meshes(capture_folder: str, output_folder: str, mask_type: str) -> None:
     """
-    Takes a `capture_folder` which contains...
+    Takes a `capture_folder/` which contains an rgb.png, a depth.png, and an intrinsics.npy
+    as well as a masks/ subfolder with image masks (png files)
+    Processes multiple masks and generates meshes for each
     """
-    # Skip sam3d_objects initialization (required for lightweight import)
-    # folder = "captures/tab2"
-    image_path = f"{capture_folder}/rgb.png"
-    # mask_bw_path = f"{folder}/segmentation_output/sam_outputs/0_object_mask.png"
-    mask_bw_path = mask
-    output_folder = "outputs"
+    # Normalize paths to handle trailing slashes
+    capture_folder = os.path.normpath(capture_folder)
+    output_folder = os.path.normpath(output_folder)
 
-    # Load the original image and mask
-    img = Image.open(image_path).convert("RGBA")
-    mask_bw = Image.open(mask_bw_path).convert("L")  # Convert to grayscale
+    image_path = os.path.join(capture_folder, "rgb.png")
+    mask_expr = os.path.join(capture_folder, "masks", "*.png")
+    masks = list(glob.glob(mask_expr))
 
-    # Use the mask as the alpha channel
-    # White (255) in mask = opaque, Black (0) = transparent
-    img.putalpha(mask_bw)
+    # Create output folder if it doesn't exist
+    os.makedirs(output_folder, exist_ok=True)
 
-    # Save the masked image
-    masked_image_path = f"{output_folder}/masked_image.png"
-    img.save(masked_image_path)
-    print(f"Masked image saved to: {masked_image_path}")
-
-    # Load model
+    # Load model once (reuse for all masks)
     tag = "hf"
     _package_root = os.path.join(os.path.dirname(__file__), "sam-3d-objects")
     config_path = os.path.join(_package_root, f"checkpoints/{tag}/pipeline.yaml")
     print("Loading model with sequential pipeline (memory-efficient mode)...")
     model = InferenceSequential(config_path, compile=False, device="cuda:1")
 
-    # Load image and mask for inference
-    image = load_image(image_path)
-    mask = load_mask(masked_image_path)
+    # Process each mask with numeric IDs
+    for idx, mask_bw_path in enumerate(masks):
+        print(f"\n{'='*60}")
+        print(f"Processing mask {idx + 1}/{len(masks)}: {mask_bw_path}")
+        print(f"{'='*60}")
 
-    # Run inference with texture baking enabled
-    print("Running inference...")
-    output = model(image, mask, seed=42)
+        # Use numeric ID for output files
+        numeric_id = str(idx)
 
-    # Save Gaussian splat PLY
-    ply_output_path = f"{output_folder}/completed_rgb.ply"
-    output["gs"].save_ply(ply_output_path)
-    print(f"Gaussian splat saved at {ply_output_path}")
+        # Load the original image and mask
+        img = Image.open(image_path).convert("RGBA")
+        mask_bw = Image.open(mask_bw_path).convert("L")  # Convert to grayscale
 
-    # Save mesh OBJ (the mesh is in output["glb"] as a trimesh object)
-    obj_output_path = f"{output_folder}/completed_rgb.obj"
-    output["glb"].export(obj_output_path)
-    print(f"Mesh OBJ saved at {obj_output_path}")
+        # Use the mask as the alpha channel
+        # White (255) in mask = opaque, Black (0) = transparent
+        img.putalpha(mask_bw)
+
+        # Save the masked image
+        masked_image_path = os.path.join(output_folder, f"masked_image_{numeric_id}.png")
+        img.save(masked_image_path)
+        print(f"Masked image saved to: {masked_image_path}")
+
+        # Load image and mask for inference
+        image = load_image(image_path)
+        mask = load_mask(masked_image_path)
+
+        # Run inference
+        print("Running inference...")
+        output = model(image, mask, seed=42)
+
+        print("saving ply")
+        # Save Gaussian splat PLY with numeric ID
+        ply_output_path = os.path.join(output_folder, f"{numeric_id}.ply")
+        output["gs"].save_ply(ply_output_path)
+        print(f"Gaussian splat saved at {ply_output_path}")
+        print("saving obj")
+        # Save mesh OBJ with numeric ID
+        obj_output_path = os.path.join(output_folder, f"{numeric_id}.obj")
+        output["glb"].export(obj_output_path)
+        print(f"Mesh OBJ saved at {obj_output_path}")
+
+    print(f"\n{'='*60}")
+    print(f"Completed processing {len(masks)} masks")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":
@@ -67,11 +88,11 @@ if __name__ == "__main__":
         help="Path to the capture folder containing rgb.png"
     )
     parser.add_argument(
-        "--mask",
+        "--output_folder",
         type=str,
         required=True,
-        help="Path to the object mask image"
     )
+
     parser.add_argument(
         "--mask_type",
         type=str,
@@ -80,4 +101,4 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    generate_meshes(args.capture_folder, args.mask, args.mask_type)
+    generate_meshes(args.capture_folder, args.output_folder, args.mask_type)

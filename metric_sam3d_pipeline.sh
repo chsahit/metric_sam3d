@@ -11,13 +11,13 @@ set -e  # Exit on error
 
 # Parse command-line arguments
 if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <capture_folder> <mask>"
-    echo "Example: $0 captures/tab2 captures/tab2/segmentation_output/sam_outputs/0_object_mask.png"
+    echo "Usage: $0 <capture_folder> <output_folder>"
+    echo "Example: $0 captures/tab2 outputs/test "
     exit 1
 fi
 
 CAPTURE_FOLDER="$1"
-MASK="$2"
+OUTPUT_FOLDER="$2"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -42,7 +42,7 @@ else
 fi
 
 conda activate sam3d-objects
-python generate_meshes.py --capture_folder "${CAPTURE_FOLDER}" --mask "${MASK}"
+# python generate_meshes.py --capture_folder "${CAPTURE_FOLDER}" --output_folder "${OUTPUT_FOLDER}"
 conda deactivate
 
 echo -e "${BLUE}========================${NC}"
@@ -51,11 +51,11 @@ echo -e "${BLUE}========================${NC}"
 
 # Paths
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-OUTPUT_DIR="${SCRIPT_DIR}/outputs/prepared_data"
-GRASP_DATA_DIR="${OUTPUT_DIR}/grasp_data"
-IMESH_OUTPUTS="${OUTPUT_DIR}/imesh_outputs"
-SCALE_MAPPING="${OUTPUT_DIR}/obj_scale_mapping.txt"
-REGISTERED_MESHES="${OUTPUT_DIR}/registered_meshes"
+PREPARED_DATA_DIR="${OUTPUT_FOLDER}/prepared_data"
+GRASP_DATA_DIR="${PREPARED_DATA_DIR}/grasp_data"
+IMESH_OUTPUTS="${PREPARED_DATA_DIR}/imesh_outputs"
+SCALE_MAPPING="${PREPARED_DATA_DIR}/obj_scale_mapping.txt"
+REGISTERED_MESHES="${PREPARED_DATA_DIR}/registered_meshes"
 
 # SceneComplete paths
 SCENECOMPLETE_DIR="${SCRIPT_DIR}/SceneComplete"
@@ -64,12 +64,8 @@ REGISTRATION_SCRIPT="${SCENECOMPLETE_DIR}/scenecomplete/scripts/python/registrat
 
 unset NVCC_PREPEND_FLAGS
 
-
-
 echo ""
-echo -e "${GREEN}Step 2: Computing mesh scaling${NC}"
-echo "Activating scenecomplete environment..."
-
+echo -e "${GREEN}Step 1: Preparing data for scaling${NC}"
 
 conda activate scenecomplete || {
     echo -e "${RED}Error: Could not activate scenecomplete environment${NC}"
@@ -77,9 +73,13 @@ conda activate scenecomplete || {
     exit 1
 }
 
-python prepare_data_for_registration.py --capture_folder "${CAPTURE_FOLDER}" --mesh_folder outputs --mask "${MASK}"
+# python prepare_data_for_registration.py --capture_folder "${CAPTURE_FOLDER}" --mesh_folder "${OUTPUT_FOLDER}"
+
+echo ""
+echo -e "${GREEN}Step 2: Computing mesh scaling${NC}"
 
 echo "Running scaling computation..."
+
 python "${SCALING_SCRIPT}" \
     --segmentation_dirpath "${GRASP_DATA_DIR}" \
     --imesh_outputs "${IMESH_OUTPUTS}" \
@@ -129,6 +129,10 @@ echo -e "${BLUE}Pipeline complete!${NC}"
 echo -e "${BLUE}======================================${NC}"
 echo ""
 echo "Output files:"
+echo "  - Prepared data: ${PREPARED_DATA_DIR}"
 echo "  - Scale mapping: ${SCALE_MAPPING}"
-echo "  - Registered mesh: ${REGISTERED_MESHES}/0.obj"
+echo "  - Registered meshes: ${REGISTERED_MESHES}/"
+echo ""
+echo "Listing registered meshes:"
+ls -lh "${REGISTERED_MESHES}/" 2>/dev/null || echo "  (No registered meshes yet)"
 echo ""

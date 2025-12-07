@@ -21,6 +21,7 @@ pip install open3d==0.18.0
 
 echo "Installing timm for DINO features..."
 pip install timm
+pip install pyrender
 
 echo "Installing scenecomplete package..."
 pip install -e SceneComplete/
