@@ -16,8 +16,8 @@ if [ "$#" -ne 2 ]; then
     exit 1
 fi
 
-CAPTURE_FOLDER="$1"
-OUTPUT_FOLDER="$2"
+CAPTURE_FOLDER="${1%/}"
+OUTPUT_FOLDER="${2%/}"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -42,7 +42,7 @@ else
 fi
 
 conda activate sam3d-objects
-# python generate_meshes.py --capture_folder "${CAPTURE_FOLDER}" --output_folder "${OUTPUT_FOLDER}"
+python generate_meshes.py --capture_folder "${CAPTURE_FOLDER}" --output_folder "${OUTPUT_FOLDER}"
 conda deactivate
 
 echo -e "${BLUE}========================${NC}"
@@ -73,7 +73,7 @@ conda activate scenecomplete || {
     exit 1
 }
 
-# python prepare_data_for_registration.py --capture_folder "${CAPTURE_FOLDER}" --mesh_folder "${OUTPUT_FOLDER}"
+python prepare_data_for_registration.py --capture_folder "${CAPTURE_FOLDER}" --mesh_folder "${OUTPUT_FOLDER}"
 
 echo ""
 echo -e "${GREEN}Step 2: Computing mesh scaling${NC}"
@@ -136,3 +136,9 @@ echo ""
 echo "Listing registered meshes:"
 ls -lh "${REGISTERED_MESHES}/" 2>/dev/null || echo "  (No registered meshes yet)"
 echo ""
+
+mkdir -p "${OUTPUT_FOLDER}/results"
+cp "${OUTPUT_FOLDER}/masked_image_"* "${OUTPUT_FOLDER}/results/"
+cp "${OUTPUT_FOLDER}/prepared_data/registered_meshes/"* "${OUTPUT_FOLDER}/results"
+
+zip -r "${OUTPUT_FOLDER}/results.zip" "${OUTPUT_FOLDER}/results/"
