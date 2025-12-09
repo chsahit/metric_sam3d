@@ -7,7 +7,7 @@ import argparse
 import glob
 
 
-def generate_meshes(capture_folder: str, output_folder: str, mask_type: str) -> None:
+def generate_meshes(capture_folder: str, output_folder: str, mask_type: str, device: str = "cuda:0") -> None:
     """
     Takes a `capture_folder/` which contains an rgb.png, a depth.png, and an intrinsics.npy
     as well as a masks/ subfolder with image masks (png files)
@@ -28,8 +28,8 @@ def generate_meshes(capture_folder: str, output_folder: str, mask_type: str) -> 
     tag = "hf"
     _package_root = os.path.join(os.path.dirname(__file__), "sam-3d-objects")
     config_path = os.path.join(_package_root, f"checkpoints/{tag}/pipeline.yaml")
-    print("Loading model with sequential pipeline (memory-efficient mode)...")
-    model = InferenceSequential(config_path, compile=False, device="cuda:1")
+    print(f"Loading model with sequential pipeline (memory-efficient mode) on {device}...")
+    model = InferenceSequential(config_path, compile=False, device=device)
 
     # Process each mask with numeric IDs
     for idx, mask_bw_path in enumerate(masks):
@@ -100,5 +100,16 @@ if __name__ == "__main__":
         help="Type of mask to use (default: alpha)"
     )
 
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="0",
+        help="CUDA device to use (e.g., '0' for cuda:0, '1' for cuda:1)"
+    )
+
     args = parser.parse_args()
-    generate_meshes(args.capture_folder, args.output_folder, args.mask_type)
+
+    # Format device string
+    device = f"cuda:{args.device}" if not args.device.startswith("cuda:") else args.device
+
+    generate_meshes(args.capture_folder, args.output_folder, args.mask_type, device)

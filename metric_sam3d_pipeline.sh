@@ -10,14 +10,39 @@
 set -e  # Exit on error
 
 # Parse command-line arguments
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <capture_folder> <output_folder>"
-    echo "Example: $0 captures/tab2 outputs/test "
+DEVICE="0"  # Default device
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --device|-d)
+            DEVICE="$2"
+            shift 2
+            ;;
+        *)
+            if [ -z "${CAPTURE_FOLDER}" ]; then
+                CAPTURE_FOLDER="${1%/}"
+            elif [ -z "${OUTPUT_FOLDER}" ]; then
+                OUTPUT_FOLDER="${1%/}"
+            else
+                echo "Error: Too many positional arguments"
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+mkdir -p "${OUTPUT_FOLDER}"
+
+if [ -z "${CAPTURE_FOLDER}" ] || [ -z "${OUTPUT_FOLDER}" ]; then
+    echo "Usage: $0 [--device|-d DEVICE] <capture_folder> <output_folder>"
+    echo "Example: $0 --device 0 captures/tab2 outputs/test"
+    echo "Example: $0 -d 1 captures/tab2 outputs/test"
+    echo ""
+    echo "Options:"
+    echo "  --device, -d   CUDA device to use (default: 0)"
     exit 1
 fi
-
-CAPTURE_FOLDER="${1%/}"
-OUTPUT_FOLDER="${2%/}"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -42,7 +67,7 @@ else
 fi
 
 conda activate sam3d-objects
-python generate_meshes.py --capture_folder "${CAPTURE_FOLDER}" --output_folder "${OUTPUT_FOLDER}"
+python generate_meshes.py --capture_folder "${CAPTURE_FOLDER}" --output_folder "${OUTPUT_FOLDER}" --device "${DEVICE}"
 conda deactivate
 
 echo -e "${BLUE}========================${NC}"
@@ -79,6 +104,8 @@ echo ""
 echo -e "${GREEN}Step 2: Computing mesh scaling${NC}"
 
 echo "Running scaling computation..."
+echo "Using GPU ${DEVICE}..."
+export CUDA_VISIBLE_DEVICES=${DEVICE}
 
 python "${SCALING_SCRIPT}" \
     --segmentation_dirpath "${GRASP_DATA_DIR}" \
@@ -102,9 +129,9 @@ conda activate foundationpose || {
 }
 unset NVCC_PREPEND_FLAGS
 
-# Use GPU 1 to avoid memory conflicts with GPU 0
-echo "Using GPU 1 to avoid memory issues..."
-export CUDA_VISIBLE_DEVICES=1
+# Use specified GPU device
+echo "Using GPU ${DEVICE}..."
+export CUDA_VISIBLE_DEVICES=${DEVICE}
 
 export LD_LIBRARY_PATH=/home/$USER/miniconda3/envs/foundationpose/lib:$LD_LIBRARY_PATH
 
@@ -138,7 +165,10 @@ ls -lh "${REGISTERED_MESHES}/" 2>/dev/null || echo "  (No registered meshes yet)
 echo ""
 
 mkdir -p "${OUTPUT_FOLDER}/results"
-cp "${OUTPUT_FOLDER}/masked_image_"* "${OUTPUT_FOLDER}/results/"
-cp "${OUTPUT_FOLDER}/prepared_data/registered_meshes/"* "${OUTPUT_FOLDER}/results"
+mkdir -p "${OUTPUT_FOLDER}/results/completion_output"
+mkdir -p "${OUTPUT_FOLDER}/results/masks"
+cp "${OUTPUT_FOLDER}/masked_image_"* "${OUTPUT_FOLDER}/results/masks"
+cp "${OUTPUT_FOLDER}/prepared_data/registered_meshes/"* "${OUTPUT_FOLDER}/results/completion_output"
+cp "${OUTPUT_FOLDER}/prepared_data/grasp_data/"[0-9]*_depth.png "${OUTPUT_FOLDER}/results/masks"
 
-zip -r "${OUTPUT_FOLDER}/results.zip" "${OUTPUT_FOLDER}/results/"
+# zip -r "${OUTPUT_FOLDER}/results.zip" "${OUTPUT_FOLDER}/results/"
