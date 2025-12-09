@@ -126,13 +126,23 @@ def prepare_mesh_outputs(all_paths, object_id, mesh_obj_path, intrinsics, width,
         print(f"  Copied material_{object_id}.png to meshes/")
 
     # Render mesh to create {id}_rgba.png and depth
-    print("  Rendering mesh for scaling correspondences...")
-    render_mesh(all_paths, object_id, mesh_dst, intrinsics, width, height)
+    # Check if GLB file exists (prefer GLB for color preservation)
+    glb_path = mesh_obj_path.with_suffix('.glb')
+    if glb_path.exists():
+        print("  Found GLB file, using it for color rendering...")
+        render_mesh_source = glb_path
+    else:
+        print("  Using OBJ file for rendering...")
+        render_mesh_source = mesh_dst
 
-    # Create a placeholder in images/ for the object
+    print("  Rendering mesh for scaling correspondences...")
+    render_mesh(all_paths, object_id, render_mesh_source, intrinsics, width, height)
+
+    # Create a placeholder in images/ for the scaling script to find
+    # (The scaling script uses this directory to determine which objects exist)
     placeholder_path = all_paths["images_dir"] / f"{object_id}_rgba.png"
     shutil.copy(all_paths["rgb_path"], placeholder_path)
-    print(f"  Created placeholder in images/")
+    print(f"  Created placeholder in images/ (needed by scaling script)")
 
 def render_mesh(all_paths, object_id, mesh_path, intrinsics, width, height):
     """Render mesh to create RGB and depth images for DINO correspondences"""
@@ -144,15 +154,30 @@ def render_mesh(all_paths, object_id, mesh_path, intrinsics, width, height):
         from PIL import Image
 
         # Load mesh
-        mesh = trimesh.load(mesh_path)
+        loaded = trimesh.load(mesh_path, force='mesh')
 
-        # Center and scale mesh for better viewing
+        # Handle both Scene (GLB) and Mesh (OBJ) objects
+        if isinstance(loaded, trimesh.Scene):
+            # GLB files load as Scene - extract the geometry with colors
+            if len(loaded.geometry) > 0:
+                # Get the first mesh (or concatenate all)
+                meshes = list(loaded.geometry.values())
+                if len(meshes) == 1:
+                    mesh = meshes[0]
+                else:
+                    # Concatenate multiple meshes
+                    mesh = trimesh.util.concatenate(meshes)
+            else:
+                raise ValueError("Scene has no geometry")
+        else:
+            mesh = loaded
+
+        # Center mesh at origin (like InstantMesh does)
+        # Note: We do NOT normalize to unit size to preserve relative scale
         mesh.vertices -= mesh.centroid
-        max_extent = np.max(mesh.extents)
-        mesh.vertices /= max_extent
 
-        # Create pyrender mesh
-        pr_mesh = pyrender.Mesh.from_trimesh(mesh)
+        # Create pyrender mesh - from_trimesh automatically handles vertex colors
+        pr_mesh = pyrender.Mesh.from_trimesh(mesh, smooth=False)
 
         # Setup scene
         scene = pyrender.Scene()
@@ -173,9 +198,14 @@ def render_mesh(all_paths, object_id, mesh_path, intrinsics, width, height):
         ])
         scene.add(camera, pose=camera_pose)
 
-        # Add light
-        light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=2.0)
+        # Add ambient light to properly show vertex colors
+        # Use lower intensity to avoid washing out colors
+        light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=1.0)
         scene.add(light, pose=camera_pose)
+
+        # Add ambient light
+        ambient_light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=0.5)
+        scene.add(ambient_light, pose=camera_pose)
 
         # Render
         renderer = pyrender.OffscreenRenderer(width, height)

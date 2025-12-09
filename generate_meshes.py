@@ -71,8 +71,15 @@ def generate_meshes(capture_folder: str, output_folder: str, mask_type: str, dev
         ply_output_path = os.path.join(output_folder, f"{numeric_id}.ply")
         output["gs"].save_ply(ply_output_path)
         print(f"Gaussian splat saved at {ply_output_path}")
+
+        print("saving glb")
+        # Save mesh as GLB (preserves color/texture)
+        glb_output_path = os.path.join(output_folder, f"{numeric_id}.glb")
+        output["glb"].export(glb_output_path)
+        print(f"Mesh GLB saved at {glb_output_path}")
+
         print("saving obj")
-        # Save mesh OBJ with numeric ID
+        # Save mesh OBJ with numeric ID (for compatibility)
         obj_output_path = os.path.join(output_folder, f"{numeric_id}.obj")
         output["glb"].export(obj_output_path)
         print(f"Mesh OBJ saved at {obj_output_path}")
