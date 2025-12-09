@@ -267,15 +267,11 @@ def main():
         # Extract object ID from filename (e.g., "0.obj" -> "0")
         object_id = mesh_file.stem
 
-        # Find corresponding mask in capture folder
-        # The mask should have been used to generate this mesh
-        mask_path = mesh_folder / f"masked_image_{object_id}.png"
+        # Find corresponding mask that was saved with the mesh
+        mask_path = mesh_folder / f"mask_{object_id}.png"
         if not mask_path.exists():
-            # Fallback: try to find mask in capture folder
-            mask_path = captures_dir / "masks" / f"{object_id}.png"
-            if not mask_path.exists():
-                print(f"WARNING: No mask found for object {object_id}, skipping...")
-                continue
+            print(f"WARNING: No mask found for object {object_id} at {mask_path}, skipping...")
+            continue
 
         print(f"\n{'='*60}")
         print(f"Processing object {object_id}")

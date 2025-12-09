@@ -10,7 +10,7 @@
 set -e  # Exit on error
 
 # Parse command-line arguments
-DEVICE="0"  # Default device
+DEVICE="1"  # Default device
 
 while [[ $# -gt 0 ]]; do
     case $1 in

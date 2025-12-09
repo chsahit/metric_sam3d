@@ -19,7 +19,7 @@ def generate_meshes(capture_folder: str, output_folder: str, mask_type: str, dev
 
     image_path = os.path.join(capture_folder, "rgb.png")
     mask_expr = os.path.join(capture_folder, "masks", "*.png")
-    masks = list(glob.glob(mask_expr))
+    masks = sorted(glob.glob(mask_expr))  # Sort for consistent ordering
 
     # Create output folder if it doesn't exist
     os.makedirs(output_folder, exist_ok=True)
@@ -52,6 +52,11 @@ def generate_meshes(capture_folder: str, output_folder: str, mask_type: str, dev
         masked_image_path = os.path.join(output_folder, f"masked_image_{numeric_id}.png")
         img.save(masked_image_path)
         print(f"Masked image saved to: {masked_image_path}")
+
+        # Save a copy of the original mask with numeric ID for registration
+        mask_copy_path = os.path.join(output_folder, f"mask_{numeric_id}.png")
+        mask_bw.save(mask_copy_path)
+        print(f"Mask copy saved to: {mask_copy_path}")
 
         # Load image and mask for inference
         image = load_image(image_path)
