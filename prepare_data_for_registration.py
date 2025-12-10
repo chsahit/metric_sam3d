@@ -183,19 +183,63 @@ def render_mesh(all_paths, object_id, mesh_path, intrinsics, width, height):
         scene = pyrender.Scene()
         scene.add(pr_mesh)
 
-        # Setup camera
+        # Setup camera to match SceneComplete parameters
         fx = intrinsics[0, 0]
         fy = intrinsics[1, 1]
         cx = intrinsics[0, 2]
         cy = intrinsics[1, 2]
 
-        camera = pyrender.IntrinsicsCamera(fx, fy, cx, cy)
-        camera_pose = np.array([
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 1.5],  # Camera at z=1.5
-            [0.0, 0.0, 0.0, 1.0]
+        # Add explicit near/far clipping planes to ensure object is visible
+        camera = pyrender.IntrinsicsCamera(fx, fy, cx, cy, znear=0.1, zfar=10.0)
+        print(f"    Camera intrinsics: fx={fx:.2f}, fy={fy:.2f}, cx={cx:.2f}, cy={cy:.2f}")
+        print(f"    Mesh bounds: {mesh.bounds}")
+
+        # Match SceneComplete: radius=4.5, elevation=20.0 degrees
+        radius = 4.5  # SceneComplete distance
+        elevation_deg = 20.0  # SceneComplete elevation
+        elevation_rad = np.radians(elevation_deg)
+
+        # Camera position with elevation
+        cam_pos = np.array([
+            0.0,
+            radius * np.sin(elevation_rad),  # Height: ~1.539
+            radius * np.cos(elevation_rad)   # Distance: ~4.229
         ])
+
+        # Create look-at matrix: camera at cam_pos looking at origin
+        target = np.array([0.0, 0.0, 0.0])
+        up = np.array([0.0, 1.0, 0.0])
+
+        # Compute camera axes (OpenGL/pyrender convention: camera looks along -Z)
+        forward = cam_pos - target  # Vector from target to camera
+        forward = forward / np.linalg.norm(forward)
+
+        right = np.cross(up, forward)
+        right = right / np.linalg.norm(right)
+
+        cam_up = np.cross(forward, right)
+
+        # Build camera pose matrix (camera-to-world transform)
+        # Rotation vectors should be COLUMNS, not rows
+        camera_pose = np.eye(4)
+        camera_pose[:3, 0] = right      # First column: right vector
+        camera_pose[:3, 1] = cam_up     # Second column: up vector
+        camera_pose[:3, 2] = forward    # Third column: forward vector
+        camera_pose[:3, 3] = cam_pos    # Fourth column: position
+
+        print(f"    Camera position: {cam_pos}")
+        print(f"    Camera forward direction: {-forward}")  # -forward is view direction
+        print(f"    Camera up direction: {cam_up}")
+        print(f"    Camera right direction: {right}")
+        print(f"    Distance to origin: {np.linalg.norm(cam_pos):.2f}")
+
+        # Debug: Check if mesh center is in front of camera
+        mesh_center = np.mean(mesh.bounds, axis=0)
+        vec_to_mesh = mesh_center - cam_pos
+        dot_product = np.dot(vec_to_mesh, -forward)
+        print(f"    Mesh center: {mesh_center}")
+        print(f"    Dot product (>0 means in front): {dot_product:.2f}")
+
         scene.add(camera, pose=camera_pose)
 
         # Add ambient light to properly show vertex colors
