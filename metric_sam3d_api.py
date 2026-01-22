@@ -19,8 +19,9 @@ app = FastAPI(
     description="Generate metric-scale 3D meshes from RGB-D images and masks"
 )
 
-OUTPUT_DIR = "/home/aditya/research/maggie/metric_sam3d/api_outputs"
-PIPELINE_SCRIPT = "/home/aditya/research/maggie/metric_sam3d/metric_sam3d_pipeline.sh"
+SCRIPT_DIR = osp.dirname(osp.abspath(__file__))
+OUTPUT_DIR = osp.join(SCRIPT_DIR, "api_outputs")
+PIPELINE_SCRIPT = osp.join(SCRIPT_DIR, "metric_sam3d_pipeline.sh")
 
 
 def zip_folder(folder_to_zip: str, zip_path: str) -> None:
@@ -182,19 +183,6 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    """
-    Example usage:
-
-    # Zip your capture folder
-    cd /path/to/captures
-    zip -r mycapture.zip mycapture/
-
-    # Call the API
-    curl -X POST "http://192.168.1.2:8018/metric_sam3d/" \
-        -F "capture_zip=@mycapture.zip" \
-        -F "device=0" \
-        --output result.zip
-    """
     import uvicorn
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)

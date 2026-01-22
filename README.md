@@ -39,7 +39,7 @@ Registered meshes: `output_folder/results/completion_output/*.obj`
 # Start server
 python metric_sam3d_api.py
 
-# Call (from any machine)
+# Call (from any machine), takes roughly five minutes (at least measured from the old robot machine)
 curl -X POST "http://<ip>:8018/metric_sam3d/" \
     -F "capture_zip=@capture.zip" \
     -F "device=0" \
