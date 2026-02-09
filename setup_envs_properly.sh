@@ -26,5 +26,21 @@ pip install pyrender
 echo "Installing scenecomplete package..."
 pip install -e SceneComplete/
 
+echo "Installing OpenAI client for ChatGPT prompting..."
+pip install openai
+
+echo "Installing gdown for downloading weights..."
+pip install gdown
+
+echo "Installing Segment Anything (SAM)..."
+cd SceneComplete/scenecomplete/modules/GroundedSegmentAnything/segment_anything
+pip install -e .
+cd -
+
+echo "Installing GroundingDINO..."
+cd SceneComplete/scenecomplete/modules/GroundedSegmentAnything/GroundingDINO
+pip install -e . --no-build-isolation
+cd -
+
 echo "scenecomplete environment setup complete!"
 '

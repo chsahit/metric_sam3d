@@ -51,6 +51,36 @@ Input (capture_folder/) → generate_meshes.py → prepare_data_for_registration
   - Transforms mesh to scene coordinates
   - Exports registered OBJ files to `registered_meshes/`
 
+### Auto-Segmentation Pipeline Flow
+
+The auto-segmentation pipeline (`segmenting_metric_sam3d_pipeline.sh`) adds two preprocessing steps before the standard pipeline:
+
+```
+Input (rgb.png + depth.png + intrinsics.npy) → generate_scene_prompts.py → segment_objects.py → [Standard Pipeline Steps 1-4] → Output (registered OBJs)
+```
+
+**Step 0: ChatGPT Prompting (scenecomplete env)**
+- `generate_scene_prompts.py` uses GPT-4o to identify objects:
+  - Sends RGB image to OpenAI ChatCompletion API with vision
+  - Prompts: "Describe objects using generic name + color for SAM segmentation"
+  - Filters out background/table
+  - Outputs `prompts.txt` (one object description per line)
+
+**Step 1: GroundedSAM Segmentation (scenecomplete env)**
+- `segment_objects.py` generates masks from text prompts:
+  - Uses GroundingDINO to detect objects from text descriptions
+  - Uses Segment Anything (SAM) to refine detections into precise masks
+  - Applies Non-Maximum Suppression (NMS) to remove overlapping detections
+  - Outputs per-object masks to `capture_folder/masks/{id}.png`
+  - Also generates masked RGB/depth, RGBA images, and inpainting masks
+
+**Steps 2-5**: Same as standard pipeline (mesh generation → scaling → registration)
+
+**Important Configuration**:
+- `SceneComplete/scenecomplete/scripts/python/segmentation/utils/segment_config.yaml` contains paths to GroundingDINO config and weights
+- Uses absolute paths (e.g., `/home/sahit/metric_sam3d/SceneComplete/...`) to avoid relative path issues
+- Config includes box_threshold (0.3) and text_threshold (0.25) for GroundingDINO
+
 ### Key Data Structures
 
 **Input Structure:**
@@ -96,11 +126,16 @@ The pipeline uses three conda environments:
 - sam3d_objects package
 - Used by: `generate_meshes.py`
 
-**scenecomplete**: Scaling and data preparation
+**scenecomplete**: Scaling, data preparation, and auto-segmentation
 - PyTorch (CPU version to avoid conflicts)
 - OpenCV, Open3D, pyrender, timm (for DINO)
 - scenecomplete package (installed via `pip install -e SceneComplete/`)
-- Used by: `prepare_data_for_registration.py`, `compute_mesh_scaling.py`
+- **Auto-segmentation dependencies**:
+  - OpenAI client (for ChatGPT prompting)
+  - GroundingDINO (installed via `pip install -e . --no-build-isolation`)
+  - Segment Anything / SAM (installed via `pip install -e .`)
+  - gdown (for downloading weights)
+- Used by: `prepare_data_for_registration.py`, `compute_mesh_scaling.py`, `generate_scene_prompts.py`, `segment_objects.py`
 
 **foundationpose**: Pose estimation
 - FoundationPose dependencies (nvdiffrast, etc.)
@@ -123,10 +158,23 @@ bash setup_envs_properly.sh
 
 ### Running the Pipeline
 
-**Main pipeline (runs all steps):**
+**Main pipeline (runs all steps with pre-computed masks):**
 ```bash
 ./metric_sam3d_pipeline.sh [--device 0] <capture_folder> <output_folder>
 ```
+
+**Auto-segmentation pipeline (masks generated automatically):**
+```bash
+# Set OpenAI API key (add to ~/.bashrc for persistence)
+export OPENAI_API_KEY="sk-..."
+
+# Run pipeline - uses ChatGPT to identify objects and GroundedSAM to segment
+./segmenting_metric_sam3d_pipeline.sh [--device 0] <capture_folder> <output_folder>
+```
+
+Input requirements:
+- Standard pipeline: `rgb.png`, `depth.png`, `intrinsics.npy`, `masks/*.png`
+- Auto-segmentation: `rgb.png`, `depth.png`, `intrinsics.npy` only (masks auto-generated)
 
 **API server:**
 ```bash
@@ -323,8 +371,21 @@ Contains multiple submodules:
 5. **API Timeout**: Default 30-minute timeout may be insufficient for many objects
    - Adjust timeout in `metric_sam3d_api.py` if needed
 
+6. **GroundingDINO Installation**: Requires `--no-build-isolation` flag to avoid CUDA version mismatch
+   - The scenecomplete environment uses CPU PyTorch, but GroundingDINO setup.py tries to compile CUDA extensions
+   - Using `--no-build-isolation` allows it to skip CUDA compilation
+
+7. **segment_config.yaml Paths**: Must use absolute paths for GroundingDINO config and weights
+   - Relative paths fail because the script is called from different working directories
+   - Config location: `SceneComplete/scenecomplete/scripts/python/segmentation/utils/segment_config.yaml`
+   - Required paths: GroundingDINO config, checkpoint, SAM checkpoint
+
+8. **CUDA Device Management**: `CUDA_VISIBLE_DEVICES` must be managed carefully across pipeline steps
+   - The auto-segmentation pipeline sets/unsets this variable appropriately
+   - Unset before mesh generation to avoid "invalid device ordinal" errors
+
 ## Future TODOs (from README)
 
 - Compute masks with SAM3
-- Compute masks with GPT + SAM2/3
+- ~~Compute masks with GPT + SAM2/3~~ ✓ Implemented in `segmenting_metric_sam3d_pipeline.sh`
 - "Cheap" endpoint using built-in pointmap
