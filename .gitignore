@@ -1,2 +1,5 @@
 captures/
 outputs/
+*.pth
+inpainting_weights/
+pose_estimation_weights/
