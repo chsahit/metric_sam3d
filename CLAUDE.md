@@ -178,11 +178,17 @@ Input requirements:
 
 **API server:**
 ```bash
-# Start server on port 8018
+# Start server on port 8018 (requires OPENAI_API_KEY for /metric_sam3d_full/ endpoint)
 python metric_sam3d_api.py
 
-# Call from any machine
+# Standard endpoint (with pre-computed masks)
 curl -X POST "http://<ip>:8018/metric_sam3d/" \
+    -F "capture_zip=@capture.zip" \
+    -F "device=0" \
+    --output result.zip
+
+# Auto-segmentation endpoint (masks generated automatically)
+curl -X POST "http://<ip>:8018/metric_sam3d_full/" \
     -F "capture_zip=@capture.zip" \
     -F "device=0" \
     --output result.zip

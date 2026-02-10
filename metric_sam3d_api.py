@@ -22,6 +22,7 @@ app = FastAPI(
 SCRIPT_DIR = osp.dirname(osp.abspath(__file__))
 OUTPUT_DIR = osp.join(SCRIPT_DIR, "api_outputs")
 PIPELINE_SCRIPT = osp.join(SCRIPT_DIR, "metric_sam3d_pipeline.sh")
+SEGMENTING_PIPELINE_SCRIPT = osp.join(SCRIPT_DIR, "segmenting_metric_sam3d_pipeline.sh")
 
 
 def zip_folder(folder_to_zip: str, zip_path: str) -> None:
@@ -51,6 +52,17 @@ def validate_capture_folder(capture_dir: str) -> tuple[bool, str]:
         return False, "No PNG files found in masks/ subfolder"
 
     return True, f"Found {mask_count} masks"
+
+
+def validate_capture_folder_minimal(capture_dir: str) -> tuple[bool, str]:
+    """Validate that capture folder has minimal required files (no masks needed)."""
+    required_files = ["rgb.png", "depth.png", "intrinsics.npy"]
+
+    for f in required_files:
+        if not osp.exists(osp.join(capture_dir, f)):
+            return False, f"Missing required file: {f}"
+
+    return True, "All required files present"
 
 
 @app.post("/metric_sam3d/")
@@ -167,6 +179,140 @@ async def metric_sam3d(
     except subprocess.TimeoutExpired:
         return JSONResponse(
             content={"error": "Pipeline timed out after 30 minutes"},
+            status_code=504
+        )
+    except Exception as e:
+        return JSONResponse(
+            content={"error": str(e)},
+            status_code=500
+        )
+
+
+@app.post("/metric_sam3d_full/")
+async def metric_sam3d_full(
+    capture_zip: UploadFile = File(..., description="ZIP of capture folder"),
+    device: str = Form(default="0", description="CUDA device ID")
+):
+    """
+    Run the auto-segmentation metric_sam3d pipeline to generate scaled, registered 3D meshes.
+
+    Uses ChatGPT to identify objects and GroundedSAM to generate masks automatically.
+
+    Input:
+    - capture_zip: ZIP file containing:
+        - rgb.png: RGB image
+        - depth.png: Depth image (16-bit PNG, millimeters)
+        - intrinsics.npy: 3x3 camera intrinsic matrix
+        (No masks needed - generated automatically!)
+    - device: CUDA device to use (default: "0")
+
+    Output:
+    - ZIP file containing:
+        - completion_output/: Registered meshes (.obj) and scene point cloud
+        - masks/: Auto-generated masks and depth images
+
+    Requirements:
+    - OPENAI_API_KEY environment variable must be set
+    """
+    # Check if OpenAI API key is set
+    if not os.environ.get("OPENAI_API_KEY"):
+        return JSONResponse(
+            content={"error": "OPENAI_API_KEY environment variable not set"},
+            status_code=400
+        )
+
+    experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_dir = osp.join(OUTPUT_DIR, f"{experiment_id}_full")
+
+    capture_dir = osp.join(experiment_dir, "capture")
+    output_dir = osp.join(experiment_dir, "output")
+
+    os.makedirs(experiment_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+
+    try:
+        # Save and extract the zip
+        zip_path = osp.join(experiment_dir, "capture.zip")
+        with open(zip_path, "wb") as f:
+            f.write(await capture_zip.read())
+
+        with zipfile.ZipFile(zip_path, 'r') as zipf:
+            zipf.extractall(experiment_dir)
+
+        # Handle both cases: zip contains folder or zip contains files directly
+        extracted_items = os.listdir(experiment_dir)
+        extracted_items = [i for i in extracted_items if i != "capture.zip"]
+
+        if len(extracted_items) == 1 and osp.isdir(osp.join(experiment_dir, extracted_items[0])):
+            # Extracted to a single subfolder - rename it to "capture"
+            extracted_folder = osp.join(experiment_dir, extracted_items[0])
+            if extracted_folder != capture_dir:
+                shutil.move(extracted_folder, capture_dir)
+        else:
+            # Files extracted directly - move them into capture/
+            os.makedirs(capture_dir, exist_ok=True)
+            for item in extracted_items:
+                src = osp.join(experiment_dir, item)
+                dst = osp.join(capture_dir, item)
+                if src != capture_dir:
+                    shutil.move(src, dst)
+
+        # Validate the capture folder (minimal - no masks required)
+        valid, message = validate_capture_folder_minimal(capture_dir)
+        if not valid:
+            return JSONResponse(
+                content={"error": message},
+                status_code=400
+            )
+
+        # Run the auto-segmentation pipeline
+        command = [
+            "bash",
+            SEGMENTING_PIPELINE_SCRIPT,
+            "--device", device,
+            capture_dir,
+            output_dir
+        ]
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=3600,  # 60 minute timeout (auto-segmentation takes longer)
+            env={**os.environ}  # Pass all environment variables including OPENAI_API_KEY
+        )
+
+        if result.returncode != 0:
+            return JSONResponse(
+                content={
+                    "error": "Pipeline failed",
+                    "stdout": result.stdout[-2000:] if result.stdout else "",
+                    "stderr": result.stderr[-2000:] if result.stderr else ""
+                },
+                status_code=500
+            )
+
+        # Check if results exist
+        results_dir = osp.join(output_dir, "results")
+        if not osp.exists(results_dir):
+            return JSONResponse(
+                content={"error": "Pipeline completed but no results directory found"},
+                status_code=500
+            )
+
+        # Zip the results folder
+        result_zip_path = osp.join(experiment_dir, "results.zip")
+        zip_folder(results_dir, result_zip_path)
+
+        return FileResponse(
+            path=result_zip_path,
+            filename=f"metric_sam3d_full_{experiment_id}.zip",
+            media_type='application/zip'
+        )
+
+    except subprocess.TimeoutExpired:
+        return JSONResponse(
+            content={"error": "Pipeline timed out after 60 minutes"},
             status_code=504
         )
     except Exception as e:

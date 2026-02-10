@@ -65,17 +65,37 @@ Registered meshes: `output_folder/results/completion_output/*.obj`
 ## API
 
 ```bash
-# Start server
+# Start server (requires OPENAI_API_KEY for /metric_sam3d_full/ endpoint)
 python metric_sam3d_api.py
+```
 
-# Call (from any machine), takes roughly five minutes (at least measured from the old robot machine)
+### Standard Endpoint (with pre-computed masks)
+
+```bash
+# Call (from any machine), takes roughly five minutes
 curl -X POST "http://<ip>:8018/metric_sam3d/" \
     -F "capture_zip=@capture.zip" \
     -F "device=0" \
     --output result.zip
 ```
 
-**ZIP must be flat** (files at root, not nested):
+**Requirements:** ZIP must contain `rgb.png`, `depth.png`, `intrinsics.npy`, and `masks/*.png`
+
+### Auto-Segmentation Endpoint (masks generated automatically)
+
+```bash
+# Call (from any machine), takes longer due to auto-segmentation
+curl -X POST "http://<ip>:8018/metric_sam3d_full/" \
+    -F "capture_zip=@capture.zip" \
+    -F "device=0" \
+    --output result.zip
+```
+
+**Requirements:**
+- ZIP must contain only `rgb.png`, `depth.png`, `intrinsics.npy` (no masks needed!)
+- Server must have `OPENAI_API_KEY` environment variable set
+
+**Creating the ZIP** (files at root, not nested):
 ```bash
 cd my_capture && zip -r ../capture.zip .
 ```

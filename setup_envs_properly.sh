@@ -18,6 +18,9 @@ echo "Installing core dependencies with correct versions..."
 pip install "numpy<2" scipy matplotlib pillow
 pip install "opencv-python<4.10"
 pip install open3d==0.18.0
+pip install fastapi
+pip install python-multipart
+pip install uvicorn
 
 echo "Installing timm for DINO features..."
 pip install timm
