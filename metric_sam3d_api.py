@@ -13,6 +13,14 @@ import os
 import os.path as osp
 import zipfile
 import shutil
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Metric SAM3D API",
@@ -68,7 +76,7 @@ def validate_capture_folder_minimal(capture_dir: str) -> tuple[bool, str]:
 @app.post("/metric_sam3d/")
 async def metric_sam3d(
     capture_zip: UploadFile = File(..., description="ZIP of capture folder"),
-    device: str = Form(default="0", description="CUDA device ID")
+    device: str = Form(default="1", description="CUDA device ID")
 ):
     """
     Run the metric_sam3d pipeline to generate scaled, registered 3D meshes.
@@ -91,6 +99,8 @@ async def metric_sam3d(
 
     capture_dir = osp.join(experiment_dir, "capture")
     output_dir = osp.join(experiment_dir, "output")
+
+    logger.info(f"Received /metric_sam3d/ request - experiment_id: {experiment_id}, device: {device}")
 
     os.makedirs(experiment_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
@@ -141,19 +151,41 @@ async def metric_sam3d(
             output_dir
         ]
 
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=1800  # 30 minute timeout
-        )
+        logger.info(f"Running pipeline for experiment {experiment_id}")
+        logger.info(f"Command: {' '.join(command)}")
+
+        # Save stdout/stderr to log files
+        stdout_log = osp.join(experiment_dir, "stdout.log")
+        stderr_log = osp.join(experiment_dir, "stderr.log")
+
+        with open(stdout_log, "w") as out_f, open(stderr_log, "w") as err_f:
+            result = subprocess.run(
+                command,
+                stdout=out_f,
+                stderr=err_f,
+                text=True,
+                timeout=1800  # 30 minute timeout
+            )
+
+        # Read logs back for error reporting
+        with open(stdout_log, "r") as f:
+            stdout_content = f.read()
+        with open(stderr_log, "r") as f:
+            stderr_content = f.read()
+
+        logger.info(f"Pipeline exited with code {result.returncode}")
 
         if result.returncode != 0:
+            logger.error(f"Pipeline failed for experiment {experiment_id}")
+            logger.error(f"Last 1000 chars of stdout: {stdout_content[-1000:]}")
+            logger.error(f"Last 1000 chars of stderr: {stderr_content[-1000:]}")
             return JSONResponse(
                 content={
                     "error": "Pipeline failed",
-                    "stdout": result.stdout[-2000:] if result.stdout else "",
-                    "stderr": result.stderr[-2000:] if result.stderr else ""
+                    "experiment_id": experiment_id,
+                    "stdout": stdout_content[-2000:] if stdout_content else "",
+                    "stderr": stderr_content[-2000:] if stderr_content else "",
+                    "log_location": experiment_dir
                 },
                 status_code=500
             )
@@ -161,14 +193,22 @@ async def metric_sam3d(
         # Check if results exist
         results_dir = osp.join(output_dir, "results")
         if not osp.exists(results_dir):
+            logger.error(f"Pipeline completed but no results directory found for experiment {experiment_id}")
+            logger.error(f"Output directory contents: {os.listdir(output_dir) if osp.exists(output_dir) else 'DIR NOT FOUND'}")
             return JSONResponse(
-                content={"error": "Pipeline completed but no results directory found"},
+                content={
+                    "error": "Pipeline completed but no results directory found",
+                    "experiment_id": experiment_id,
+                    "log_location": experiment_dir
+                },
                 status_code=500
             )
 
         # Zip the results folder
         result_zip_path = osp.join(experiment_dir, "results.zip")
         zip_folder(results_dir, result_zip_path)
+
+        logger.info(f"Pipeline completed successfully for experiment {experiment_id}")
 
         return FileResponse(
             path=result_zip_path,
@@ -177,13 +217,23 @@ async def metric_sam3d(
         )
 
     except subprocess.TimeoutExpired:
+        logger.error(f"Pipeline timed out for experiment {experiment_id}")
         return JSONResponse(
-            content={"error": "Pipeline timed out after 30 minutes"},
+            content={
+                "error": "Pipeline timed out after 30 minutes",
+                "experiment_id": experiment_id,
+                "log_location": experiment_dir
+            },
             status_code=504
         )
     except Exception as e:
+        logger.exception(f"Unexpected error in pipeline for experiment {experiment_id}")
         return JSONResponse(
-            content={"error": str(e)},
+            content={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "experiment_id": experiment_id
+            },
             status_code=500
         )
 
@@ -191,7 +241,7 @@ async def metric_sam3d(
 @app.post("/metric_sam3d_full/")
 async def metric_sam3d_full(
     capture_zip: UploadFile = File(..., description="ZIP of capture folder"),
-    device: str = Form(default="0", description="CUDA device ID")
+    device: str = Form(default="1", description="CUDA device ID")
 ):
     """
     Run the auto-segmentation metric_sam3d pipeline to generate scaled, registered 3D meshes.
@@ -226,6 +276,8 @@ async def metric_sam3d_full(
 
     capture_dir = osp.join(experiment_dir, "capture")
     output_dir = osp.join(experiment_dir, "output")
+
+    logger.info(f"Received /metric_sam3d_full/ request - experiment_id: {experiment_id}_full, device: {device}")
 
     os.makedirs(experiment_dir, exist_ok=True)
     os.makedirs(output_dir, exist_ok=True)
@@ -274,20 +326,42 @@ async def metric_sam3d_full(
             output_dir
         ]
 
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=3600,  # 60 minute timeout (auto-segmentation takes longer)
-            env={**os.environ}  # Pass all environment variables including OPENAI_API_KEY
-        )
+        logger.info(f"Running auto-segmentation pipeline for experiment {experiment_id}")
+        logger.info(f"Command: {' '.join(command)}")
+
+        # Save stdout/stderr to log files
+        stdout_log = osp.join(experiment_dir, "stdout.log")
+        stderr_log = osp.join(experiment_dir, "stderr.log")
+
+        with open(stdout_log, "w") as out_f, open(stderr_log, "w") as err_f:
+            result = subprocess.run(
+                command,
+                stdout=out_f,
+                stderr=err_f,
+                text=True,
+                timeout=3600,  # 60 minute timeout (auto-segmentation takes longer)
+                env={**os.environ}  # Pass all environment variables including OPENAI_API_KEY
+            )
+
+        # Read logs back for error reporting
+        with open(stdout_log, "r") as f:
+            stdout_content = f.read()
+        with open(stderr_log, "r") as f:
+            stderr_content = f.read()
+
+        logger.info(f"Pipeline exited with code {result.returncode}")
 
         if result.returncode != 0:
+            logger.error(f"Pipeline failed for experiment {experiment_id}")
+            logger.error(f"Last 1000 chars of stdout: {stdout_content[-1000:]}")
+            logger.error(f"Last 1000 chars of stderr: {stderr_content[-1000:]}")
             return JSONResponse(
                 content={
                     "error": "Pipeline failed",
-                    "stdout": result.stdout[-2000:] if result.stdout else "",
-                    "stderr": result.stderr[-2000:] if result.stderr else ""
+                    "experiment_id": experiment_id,
+                    "stdout": stdout_content[-2000:] if stdout_content else "",
+                    "stderr": stderr_content[-2000:] if stderr_content else "",
+                    "log_location": experiment_dir
                 },
                 status_code=500
             )
@@ -295,14 +369,22 @@ async def metric_sam3d_full(
         # Check if results exist
         results_dir = osp.join(output_dir, "results")
         if not osp.exists(results_dir):
+            logger.error(f"Auto-segmentation pipeline completed but no results directory found for experiment {experiment_id}")
+            logger.error(f"Output directory contents: {os.listdir(output_dir) if osp.exists(output_dir) else 'DIR NOT FOUND'}")
             return JSONResponse(
-                content={"error": "Pipeline completed but no results directory found"},
+                content={
+                    "error": "Pipeline completed but no results directory found",
+                    "experiment_id": experiment_id,
+                    "log_location": experiment_dir
+                },
                 status_code=500
             )
 
         # Zip the results folder
         result_zip_path = osp.join(experiment_dir, "results.zip")
         zip_folder(results_dir, result_zip_path)
+
+        logger.info(f"Auto-segmentation pipeline completed successfully for experiment {experiment_id}")
 
         return FileResponse(
             path=result_zip_path,
@@ -311,13 +393,23 @@ async def metric_sam3d_full(
         )
 
     except subprocess.TimeoutExpired:
+        logger.error(f"Auto-segmentation pipeline timed out for experiment {experiment_id}")
         return JSONResponse(
-            content={"error": "Pipeline timed out after 60 minutes"},
+            content={
+                "error": "Pipeline timed out after 60 minutes",
+                "experiment_id": experiment_id,
+                "log_location": experiment_dir
+            },
             status_code=504
         )
     except Exception as e:
+        logger.exception(f"Unexpected error in auto-segmentation pipeline for experiment {experiment_id}")
         return JSONResponse(
-            content={"error": str(e)},
+            content={
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "experiment_id": experiment_id
+            },
             status_code=500
         )
 
