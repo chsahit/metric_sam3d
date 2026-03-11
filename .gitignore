@@ -3,3 +3,5 @@ outputs/
 *.pth
 inpainting_weights/
 pose_estimation_weights/
+__pycache__/
+api_outputs/
