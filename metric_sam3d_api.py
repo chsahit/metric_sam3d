@@ -14,6 +14,8 @@ import os.path as osp
 import zipfile
 import shutil
 import logging
+import numpy as np
+from PIL import Image
 
 # Configure logging
 logging.basicConfig(
@@ -31,6 +33,7 @@ SCRIPT_DIR = osp.dirname(osp.abspath(__file__))
 OUTPUT_DIR = osp.join(SCRIPT_DIR, "api_outputs")
 PIPELINE_SCRIPT = osp.join(SCRIPT_DIR, "metric_sam3d_pipeline.sh")
 SEGMENTING_PIPELINE_SCRIPT = osp.join(SCRIPT_DIR, "segmenting_metric_sam3d_pipeline.sh")
+POSE_PIPELINE_SCRIPT = osp.join(SCRIPT_DIR, "pose_pipeline.sh")
 
 
 def zip_folder(folder_to_zip: str, zip_path: str) -> None:
@@ -410,6 +413,144 @@ async def metric_sam3d_full(
                 "error_type": type(e).__name__,
                 "experiment_id": experiment_id
             },
+            status_code=500
+        )
+
+
+@app.post("/metric_sam3d_pose/")
+async def metric_sam3d_pose(
+    capture_zip: UploadFile = File(..., description="ZIP with capture files and SAM3 completion output"),
+    device: str = Form(default="0", description="CUDA device ID")
+):
+    """
+    Run pose estimation (stages 2-4 only) using pre-generated SAM3 meshes.
+
+    Input:
+    - capture_zip: ZIP file containing:
+        - rgb.png, depth.png, intrinsics.npy  (capture files)
+        - completion_output/0.obj, 1.obj, ...  (SAM3 meshes)
+        - completion_output/masked_image_0.png, ...  (RGBA masks)
+        - completion_output/0_depth.png, ...  (depth maps)
+    - device: CUDA device to use (default: "0")
+
+    Output:
+    - ZIP file in same format as /metric_sam3d/ (drop-in replacement)
+    """
+    experiment_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    experiment_dir = osp.join(OUTPUT_DIR, f"{experiment_id}_pose")
+
+    capture_dir = osp.join(experiment_dir, "capture")
+    output_dir = osp.join(experiment_dir, "output")
+
+    os.makedirs(experiment_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+
+    try:
+        # Save and extract the zip
+        zip_path = osp.join(experiment_dir, "capture.zip")
+        with open(zip_path, "wb") as f:
+            f.write(await capture_zip.read())
+
+        with zipfile.ZipFile(zip_path, 'r') as zipf:
+            zipf.extractall(experiment_dir)
+
+        # Handle both cases: zip contains folder or zip contains files directly
+        extracted_items = os.listdir(experiment_dir)
+        extracted_items = [i for i in extracted_items if i != "capture.zip"]
+
+        if len(extracted_items) == 1 and osp.isdir(osp.join(experiment_dir, extracted_items[0])):
+            extracted_folder = osp.join(experiment_dir, extracted_items[0])
+            if extracted_folder != capture_dir:
+                shutil.move(extracted_folder, capture_dir)
+        else:
+            os.makedirs(capture_dir, exist_ok=True)
+            for item in extracted_items:
+                src = osp.join(experiment_dir, item)
+                dst = osp.join(capture_dir, item)
+                if src != capture_dir:
+                    shutil.move(src, dst)
+
+        # Validate minimal capture files
+        valid, message = validate_capture_folder_minimal(capture_dir)
+        if not valid:
+            return JSONResponse(content={"error": message}, status_code=400)
+
+        # completion_output dir with SAM3 meshes and RGBA masked images
+        completion_output_dir = osp.join(capture_dir, "completion_output")
+        if not osp.exists(completion_output_dir):
+            return JSONResponse(
+                content={"error": "Missing completion_output/ folder in ZIP"},
+                status_code=400
+            )
+
+        # Extract alpha channel from masked_image_{i}.png → mask_{i}.png (binary)
+        for fname in os.listdir(completion_output_dir):
+            if fname.startswith("masked_image_") and fname.endswith(".png"):
+                idx = fname[len("masked_image_"):-len(".png")]
+                rgba_path = osp.join(completion_output_dir, fname)
+                mask_path = osp.join(completion_output_dir, f"mask_{idx}.png")
+                img = Image.open(rgba_path)
+                if img.mode == "RGBA":
+                    alpha = np.array(img)[:, :, 3]
+                    binary_mask = (alpha > 0).astype(np.uint8) * 255
+                    Image.fromarray(binary_mask).save(mask_path)
+                else:
+                    # Fallback: treat as grayscale mask
+                    img.convert("L").save(mask_path)
+
+        # Run pose pipeline (stages 2-4 only)
+        command = [
+            "bash",
+            POSE_PIPELINE_SCRIPT,
+            "--device", device,
+            capture_dir,
+            completion_output_dir,
+            output_dir
+        ]
+
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minute timeout
+        )
+
+        if result.returncode != 0:
+            return JSONResponse(
+                content={
+                    "error": "Pipeline failed",
+                    "stdout": result.stdout[-2000:] if result.stdout else "",
+                    "stderr": result.stderr[-2000:] if result.stderr else ""
+                },
+                status_code=500
+            )
+
+        # Check if results exist
+        results_dir = osp.join(output_dir, "results")
+        if not osp.exists(results_dir):
+            return JSONResponse(
+                content={"error": "Pipeline completed but no results directory found"},
+                status_code=500
+            )
+
+        # Zip the results folder
+        result_zip_path = osp.join(experiment_dir, "results.zip")
+        zip_folder(results_dir, result_zip_path)
+
+        return FileResponse(
+            path=result_zip_path,
+            filename=f"metric_sam3d_pose_{experiment_id}.zip",
+            media_type='application/zip'
+        )
+
+    except subprocess.TimeoutExpired:
+        return JSONResponse(
+            content={"error": "Pipeline timed out after 10 minutes"},
+            status_code=504
+        )
+    except Exception as e:
+        return JSONResponse(
+            content={"error": str(e)},
             status_code=500
         )
 
