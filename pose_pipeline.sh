@@ -66,7 +66,7 @@ fi
 
 # Paths
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PREPARED_DATA_DIR="${OUTPUT_FOLDER}/prepared_data"
+PREPARED_DATA_DIR="${MESH_FOLDER}/prepared_data"
 GRASP_DATA_DIR="${PREPARED_DATA_DIR}/grasp_data"
 IMESH_OUTPUTS="${PREPARED_DATA_DIR}/imesh_outputs"
 SCALE_MAPPING="${PREPARED_DATA_DIR}/obj_scale_mapping.txt"
@@ -154,5 +154,5 @@ mkdir -p "${OUTPUT_FOLDER}/results"
 mkdir -p "${OUTPUT_FOLDER}/results/completion_output"
 mkdir -p "${OUTPUT_FOLDER}/results/masks"
 cp "${MESH_FOLDER}/masked_image_"* "${OUTPUT_FOLDER}/results/masks"
-cp "${OUTPUT_FOLDER}/prepared_data/registered_meshes/"* "${OUTPUT_FOLDER}/results/completion_output"
-cp "${OUTPUT_FOLDER}/prepared_data/grasp_data/"[0-9]*_depth.png "${OUTPUT_FOLDER}/results/masks"
+cp "${MESH_FOLDER}/prepared_data/registered_meshes/"* "${OUTPUT_FOLDER}/results/completion_output"
+cp "${MESH_FOLDER}/prepared_data/grasp_data/"[0-9]*_depth.png "${OUTPUT_FOLDER}/results/masks"
