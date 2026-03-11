@@ -16,6 +16,7 @@ import shutil
 import logging
 import numpy as np
 from PIL import Image
+import trimesh
 
 # Configure logging
 logging.basicConfig(
@@ -420,7 +421,7 @@ async def metric_sam3d_full(
 @app.post("/metric_sam3d_pose/")
 async def metric_sam3d_pose(
     capture_zip: UploadFile = File(..., description="ZIP with capture files and SAM3 completion output"),
-    device: str = Form(default="0", description="CUDA device ID")
+    device: str = Form(default="1", description="CUDA device ID")
 ):
     """
     Run pose estimation (stages 2-4 only) using pre-generated SAM3 meshes.
@@ -482,6 +483,17 @@ async def metric_sam3d_pose(
                 content={"error": "Missing completion_output/ folder in ZIP"},
                 status_code=400
             )
+
+        # Decimate dense SAM3 meshes (engaging outputs ~334K faces; FoundationPose OOMs on these)
+        MAX_FACES = 20000
+        for fname in os.listdir(completion_output_dir):
+            if fname.endswith(".obj") and fname[0].isdigit():
+                obj_path = osp.join(completion_output_dir, fname)
+                mesh = trimesh.load(obj_path, force='mesh')
+                if len(mesh.faces) > MAX_FACES:
+                    mesh = mesh.simplify_quadric_decimation(MAX_FACES)
+                    mesh.export(obj_path)
+                    logger.info(f"Decimated {fname}: {len(mesh.faces)} faces")
 
         # Extract alpha channel from masked_image_{i}.png → mask_{i}.png (binary)
         for fname in os.listdir(completion_output_dir):
